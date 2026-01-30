@@ -4,6 +4,7 @@ Supports image formats (PNG, JPEG, WebP, BMP, GIF, TIFF) and PDF.
 Optional API key auth: master key (env API_KEY) or consumer keys (created via POST /api/keys).
 Send X-API-Key or Authorization: Bearer <key>.
 """
+import base64
 import io
 import json
 import os
@@ -277,7 +278,7 @@ def convert():
     """
     Convert binary file to another format.
     Input: binary (raw body or multipart 'file'), input_format, output_format.
-    Output: binary response + headers Content-Type, X-Output-Format, X-Output-Filename (unique).
+    Output: binary + headers (default), or JSON {filename, format, data} when ?response=json.
     """
     try:
         binary_in = get_binary_input()
@@ -305,6 +306,15 @@ def convert():
         ext = "pdf" if fmt_header == "pdf" else fmt_header
 
         unique_name = f"{uuid.uuid4().hex}.{ext}"
+        want_json = request.args.get("response") == "json"
+
+        if want_json:
+            return jsonify({
+                "filename": unique_name,
+                "format": fmt_header,
+                "data": base64.b64encode(out_bytes).decode("ascii"),
+            }), 200
+
         resp = Response(out_bytes, status=200, mimetype=mime)
         resp.headers["X-Output-Format"] = fmt_header
         resp.headers["X-Output-Filename"] = unique_name

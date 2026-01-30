@@ -76,10 +76,13 @@ Convert binary to another format.
    - `file`: binary file
    - `input_format`, `output_format`: form fields (or query/headers)
 
-**Response:** Binary file with:
+**Response (default):** Binary file with headers:
 - `Content-Type`: MIME of output format
 - `X-Output-Format`: output format (e.g. `jpeg`, `png`)
-- `X-Output-Filename`: unique output filename (e.g. `a1b2c3d4e5f6...hex....jpeg`); also in `Content-Disposition`
+- `X-Output-Filename`: unique output filename; also in `Content-Disposition`
+
+**Response (JSON):** Add `?response=json` to get JSON instead of binary:
+- `{"filename": "a1b2c3...jpeg", "format": "jpeg", "data": "<base64>"}` — decode `data` to get the file bytes.
 
 ### `GET /api/formats`
 
@@ -112,6 +115,14 @@ curl -X POST "http://localhost:5000/api/convert?input_format=png&output_format=j
   -H "X-API-Key: your-secret-key" \
   --data-binary @input.png \
   --output out.jpg
+```
+
+**JSON response** (`?response=json`) – `filename`, `format`, and base64 `data`:
+```bash
+curl -X POST "http://localhost:5000/api/convert?input_format=png&output_format=jpeg&response=json" \
+  -H "X-API-Key: your-secret-key" \
+  --data-binary @input.png
+# Returns: {"filename":"a1b2c3...jpeg","format":"jpeg","data":"<base64>"}
 ```
 
 **Create a consumer key** (master key required):
@@ -163,7 +174,7 @@ curl -X POST "http://localhost:5000/api/convert?input_format=png&output_format=p
   --data-binary @image.png --output out.pdf
 ```
 
-**JavaScript (fetch) – send binary, get binary:**
+**JavaScript (fetch) – binary response:**
 ```javascript
 const blob = await (await fetch('input.png')).blob();
 const res = await fetch('http://localhost:5000/api/convert?input_format=png&output_format=jpeg', {
@@ -172,7 +183,19 @@ const res = await fetch('http://localhost:5000/api/convert?input_format=png&outp
 });
 const outBlob = await res.blob();
 const outFormat = res.headers.get('X-Output-Format'); // 'jpeg'
-const outFilename = res.headers.get('X-Output-Filename'); // unique name, e.g. 'a1b2c3d4...jpeg'
+const outFilename = res.headers.get('X-Output-Filename'); // unique name
+```
+
+**JavaScript (fetch) – JSON response** (`?response=json`):
+```javascript
+const blob = await (await fetch('input.png')).blob();
+const res = await fetch('http://localhost:5000/api/convert?input_format=png&output_format=jpeg&response=json', {
+  method: 'POST',
+  body: blob,
+});
+const { filename, format, data } = await res.json();
+const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+// save bytes as filename
 ```
 
 ## Error responses
