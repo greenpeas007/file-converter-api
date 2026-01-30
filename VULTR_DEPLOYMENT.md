@@ -58,13 +58,24 @@ ufw --force enable
 
 ### Option A: Clone from Git (if the project is in a repo)
 
+**Important:** GitHub no longer accepts account passwords for Git. Use a [Personal Access Token (PAT)](https://github.com/settings/tokens) instead. When prompted for "Password", paste your PAT.
+
 ```bash
 mkdir -p /opt/file-converter-api
 cd /opt/file-converter-api
 
-# Replace with your repo URL
+# Replace YOUR_USER with your GitHub username (e.g. greenpeas007)
 git clone https://github.com/YOUR_USER/file-converter-api.git .
-# Or copy only the needed files (see Option B)
+
+# When prompted:
+#   Username: your-github-username
+#   Password: your Personal Access Token (NOT your GitHub password)
+```
+
+**Or use SSH** (if you've added your SSH key to the server and to GitHub):
+
+```bash
+git clone git@github.com:YOUR_USER/file-converter-api.git .
 ```
 
 ### Option B: Copy project files from your machine
@@ -81,6 +92,22 @@ Then on the server:
 cd /opt/file-converter-api
 ```
 
+### (Optional) Set API key for secured access
+
+To require an API key on `/api/convert` and `/api/formats`, set `API_KEY` before starting:
+
+```bash
+export API_KEY="your-secret-key-here"
+```
+
+Or create a `.env` file in `/opt/file-converter-api`:
+
+```
+API_KEY=your-secret-key-here
+```
+
+Clients must send `X-API-Key: your-secret-key-here` or `Authorization: Bearer your-secret-key-here`. `/api/health` stays open (no key required).
+
 ### Build and run with Docker Compose
 
 ```bash
@@ -88,6 +115,8 @@ cd /opt/file-converter-api
 docker compose build --no-cache
 docker compose up -d
 ```
+
+If you set `API_KEY` in the environment or in `.env`, it will be passed to the container automatically.
 
 Check that the container is running:
 
@@ -115,6 +144,20 @@ Convert a file (example: PNG → JPEG):
 curl -X POST "http://YOUR_VULTR_IP:5000/api/convert?input_format=png&output_format=jpeg" \
   --data-binary @image.png --output out.jpg
 ```
+
+**If you set `API_KEY`** (master key), include it in requests to `/api/convert` and `/api/formats`. You can also create **consumer keys** for each app; consumers use their key the same way.
+
+**Create a consumer key** (master key required):
+
+```bash
+curl -X POST "http://YOUR_VULTR_IP:5000/api/keys" \
+  -H "X-API-Key: your-master-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app"}'
+# Returns: {"api_key": "...", "name": "my-app", "created_at": "...", "message": "Store this key securely; it will not be shown again."}
+```
+
+Give the returned `api_key` to the consumer; they use it as `X-API-Key` or `Authorization: Bearer <key>` for `/api/convert` and `/api/formats`. Consumer keys are stored in `data/api_keys.json` (persisted via Docker volume).
 
 ---
 

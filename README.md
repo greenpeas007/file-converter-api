@@ -47,6 +47,15 @@ docker compose up -d
 
 Server: `http://localhost:5000`
 
+## API keys (optional)
+
+- **Master key:** Set `API_KEY` in the environment. Used to create consumer keys and to access all APIs. Keep it secret.
+- **Consumer keys:** Created via `POST /api/keys` (requires master key). Each consumer gets a unique key to access `/api/convert` and `/api/formats`. Stored in `data/api_keys.json` (or `API_KEYS_FILE`).
+- **Header:** `X-API-Key: <key>` or `Authorization: Bearer <key>`
+- **Health:** `/api/health` stays open (no key) for load balancers.
+
+Without `API_KEY`, all endpoints are open (no auth).
+
 ## Endpoints
 
 ### `POST /api/convert`
@@ -79,6 +88,14 @@ List supported formats.
 
 Health check.
 
+### `POST /api/keys` (master key only)
+
+Create a new consumer API key. Body (optional): `{"name": "my-app"}`. Returns the new key **once**; store it securely. Consumer keys can call `/api/convert` and `/api/formats`.
+
+### `GET /api/keys` (master key only)
+
+List consumer key names and created dates (key values are not returned).
+
 ## Examples
 
 **cURL – raw binary + query (PNG → JPEG):**
@@ -86,6 +103,28 @@ Health check.
 curl -X POST "http://localhost:5000/api/convert?input_format=png&output_format=jpeg" \
   --data-binary @input.png \
   --output out.jpg
+```
+
+**With API key** (master or consumer key):
+```bash
+curl -X POST "http://localhost:5000/api/convert?input_format=png&output_format=jpeg" \
+  -H "X-API-Key: your-secret-key" \
+  --data-binary @input.png \
+  --output out.jpg
+```
+
+**Create a consumer key** (master key required):
+```bash
+curl -X POST "http://localhost:5000/api/keys" \
+  -H "X-API-Key: your-master-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app"}'
+# Returns: {"api_key": "...", "name": "my-app", "created_at": "...", "message": "Store this key securely; it will not be shown again."}
+```
+
+**List consumer keys** (master key required):
+```bash
+curl -H "X-API-Key: your-master-key" http://localhost:5000/api/keys
 ```
 
 **cURL – multipart file:**
@@ -137,6 +176,8 @@ const outFormat = res.headers.get('X-Output-Format'); // 'jpeg'
 ## Error responses
 
 - `400`: Missing binary, missing/unsupported format
+- `401`: Missing or invalid API key
+- `503`: API key management not configured (e.g. POST /api/keys without `API_KEY` set)
 - `500`: Conversion failed (e.g. invalid image)
 
 Errors return JSON: `{ "error": "message" }`.

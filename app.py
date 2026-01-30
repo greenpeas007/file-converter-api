@@ -1,8 +1,17 @@
 """
 REST API: accepts binary data + input/output format, returns converted binary.
 Supports image formats (PNG, JPEG, WebP, BMP, GIF, TIFF) and PDF.
+Optional API key auth: master key (env API_KEY) or consumer keys (created via POST /api/keys).
+Send X-API-Key or Authorization: Bearer <key>.
 """
 import io
+import json
+import os
+import secrets
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 
@@ -17,6 +26,36 @@ except ImportError:
 
 app = Flask(__name__)
 CORS(app)
+
+# Master key (env): used to create consumer keys and to access all APIs. Consumer keys (stored in file) can access convert/formats only.
+API_KEY = os.environ.get("API_KEY")
+API_KEYS_FILE = os.environ.get("API_KEYS_FILE", "data/api_keys.json")
+CONSUMER_KEYS = {}  # key_string -> {"name": str, "created_at": str}
+_keys_lock = threading.Lock()
+
+
+def _load_consumer_keys():
+    global CONSUMER_KEYS
+    path = Path(API_KEYS_FILE)
+    if not path.exists():
+        CONSUMER_KEYS = {}
+        return
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        CONSUMER_KEYS = {item["key"]: {"name": item["name"], "created_at": item["created_at"]} for item in data.get("keys", [])}
+    except (json.JSONDecodeError, KeyError, OSError):
+        CONSUMER_KEYS = {}
+
+
+def _save_consumer_keys():
+    path = Path(API_KEYS_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"keys": [{"key": k, "name": v["name"], "created_at": v["created_at"]} for k, v in CONSUMER_KEYS.items()]}, f, indent=2)
+
+
+_load_consumer_keys()
 
 IMAGE_FORMATS = {"png", "jpeg", "webp", "bmp", "gif", "tiff"}
 ALL_INPUT_FORMATS = IMAGE_FORMATS | {"pdf"}
@@ -180,6 +219,53 @@ def convert_binary(binary_in, input_fmt, output_fmt, page=0):
     raise ValueError(f"Conversion from {input_fmt} to {output_fmt} not supported")
 
 
+def _get_request_key():
+    """Extract API key from X-API-Key or Authorization: Bearer header."""
+    return request.headers.get("X-API-Key") or (
+        request.headers.get("Authorization") or ""
+    ).replace("Bearer ", "").strip()
+
+
+def _require_api_key():
+    """Return None if auth OK (master or consumer key), else (response, status_code)."""
+    if not API_KEY and not CONSUMER_KEYS:
+        return None
+    key = _get_request_key()
+    if not key:
+        return jsonify({"error": "Missing or invalid API key"}), 401
+    if API_KEY and key == API_KEY:
+        return None
+    if key in CONSUMER_KEYS:
+        return None
+    return jsonify({"error": "Missing or invalid API key"}), 401
+
+
+def _require_master_key():
+    """Return None if master key present, else (response, status_code). Used for POST/GET /api/keys."""
+    if not API_KEY:
+        return jsonify({"error": "API key management is not configured (set API_KEY)"}), 503
+    key = _get_request_key()
+    if not key or key != API_KEY:
+        return jsonify({"error": "Missing or invalid API key"}), 401
+    return None
+
+
+@app.before_request
+def check_api_key():
+    if request.path == "/api/health":
+        return None
+    if request.path == "/api/keys":
+        err = _require_master_key()
+        if err:
+            return err
+        return None
+    # /api/convert, /api/formats: require master or consumer key when any auth is configured
+    err = _require_api_key()
+    if err:
+        return err
+    return None
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "service": "file-converter-api"})
@@ -236,6 +322,36 @@ def formats():
         "formats": ["png", "jpeg", "jpg", "webp", "bmp", "gif", "tiff", "tif", "pdf"],
         "note": "Use 'jpeg' or 'jpg' for JPEG; 'tiff' or 'tif' for TIFF. PDF: first page when converting to image; use ?page=N for other pages (0-based).",
     })
+
+
+@app.route("/api/keys", methods=["POST"])
+def create_api_key():
+    """
+    Create a new consumer API key. Requires master key (env API_KEY).
+    Body (optional): {"name": "consumer-app-name"}.
+    Returns the new key once; store it securely.
+    """
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "consumer").strip() or "consumer"
+    new_key = secrets.token_urlsafe(32)
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _keys_lock:
+        CONSUMER_KEYS[new_key] = {"name": name, "created_at": created_at}
+        _save_consumer_keys()
+    return jsonify({
+        "api_key": new_key,
+        "name": name,
+        "created_at": created_at,
+        "message": "Store this key securely; it will not be shown again.",
+    }), 201
+
+
+@app.route("/api/keys", methods=["GET"])
+def list_api_keys():
+    """List consumer key names and created_at (no key values). Requires master key."""
+    with _keys_lock:
+        items = [{"name": v["name"], "created_at": v["created_at"]} for v in CONSUMER_KEYS.values()]
+    return jsonify({"keys": items})
 
 
 if __name__ == "__main__":
