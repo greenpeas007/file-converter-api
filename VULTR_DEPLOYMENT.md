@@ -163,35 +163,83 @@ Give the returned `api_key` to the consumer; they use it as `X-API-Key` or `Auth
 
 ## 5. (Optional) HTTPS with a domain
 
-If you have a domain pointing to `YOUR_VULTR_IP` (e.g. `converter.yourdomain.com`):
+You need a **domain** that points to your Vultr IP (e.g. `api.yourdomain.com` → `155.138.231.51`). Caddy will get a free TLS certificate from Let's Encrypt automatically.
 
-1. Install Caddy (or Nginx) on the same server.
-2. Reverse proxy to `http://127.0.0.1:5000`.
+### Step 1: Point your domain to the server
 
-**Example with Caddy:**
+In your domain DNS (where you bought the domain), add an **A record**:
+
+- **Name:** `api` (or `converter`, or `@` for root)
+- **Value:** `YOUR_VULTR_IP` (e.g. `155.138.231.51`)
+- **TTL:** 300 or default
+
+Wait a few minutes for DNS to propagate.
+
+### Step 2: Open ports 80 and 443 on the server
+
+On the **Vultr server**:
+
+```bash
+ufw allow 80
+ufw allow 443
+ufw --force enable
+ufw status
+```
+
+### Step 3: Install Caddy
 
 ```bash
 apt install -y debian-keyring debian-archive-keyring apt-transport-https
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-apt update && apt install caddy
+apt update && apt install -y caddy
 ```
 
-Create `/etc/caddy/Caddyfile`:
+### Step 4: Configure Caddy
+
+Create or edit the Caddyfile (replace `api.yourdomain.com` with your domain):
+
+```bash
+nano /etc/caddy/Caddyfile
+```
+
+Put this in the file (one block only if this is your first site):
 
 ```
-converter.yourdomain.com {
+api.yourdomain.com {
     reverse_proxy localhost:5000
 }
 ```
 
-Reload Caddy:
+Save and exit (Ctrl+O, Enter, Ctrl+X).
+
+### Step 5: Start Caddy
 
 ```bash
+systemctl enable caddy
 systemctl reload caddy
 ```
 
-Then use: `https://converter.yourdomain.com/api/convert` (Caddy will get a TLS cert automatically).
+Caddy will request a certificate from Let's Encrypt. If DNS is correct, HTTPS will work in a minute.
+
+### Step 6: Use HTTPS
+
+- **Health:** `https://api.yourdomain.com/api/health`
+- **Convert:** `https://api.yourdomain.com/api/convert?input_format=png&output_format=jpeg` (POST with body)
+- **Formats:** `https://api.yourdomain.com/api/formats`
+
+(Optional) To redirect HTTP → HTTPS, use this in `/etc/caddy/Caddyfile`:
+
+```
+api.yourdomain.com {
+    reverse_proxy localhost:5000
+}
+http://api.yourdomain.com {
+    redir https://api.yourdomain.com{uri} permanent
+}
+```
+
+Then run `systemctl reload caddy`.
 
 ---
 

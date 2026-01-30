@@ -3,7 +3,7 @@
 REST API that accepts **binary data** plus **input format** and **output format**, and returns **converted binary** with high-quality settings.
 
 - **Input:** binary (raw body or multipart file) + `input_format` + `output_format`
-- **Output:** binary response + `Content-Type` and `X-Output-Format` headers
+- **Output:** binary response + `Content-Type`, `X-Output-Format`, `X-Output-Filename` (unique filename) headers
 
 ## Supported formats (images + PDF)
 
@@ -79,6 +79,7 @@ Convert binary to another format.
 **Response:** Binary file with:
 - `Content-Type`: MIME of output format
 - `X-Output-Format`: output format (e.g. `jpeg`, `png`)
+- `X-Output-Filename`: unique output filename (e.g. `a1b2c3d4e5f6...hex....jpeg`); also in `Content-Disposition`
 
 ### `GET /api/formats`
 
@@ -171,6 +172,7 @@ const res = await fetch('http://localhost:5000/api/convert?input_format=png&outp
 });
 const outBlob = await res.blob();
 const outFormat = res.headers.get('X-Output-Format'); // 'jpeg'
+const outFilename = res.headers.get('X-Output-Filename'); // unique name, e.g. 'a1b2c3d4...jpeg'
 ```
 
 ## Error responses

@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -276,7 +277,7 @@ def convert():
     """
     Convert binary file to another format.
     Input: binary (raw body or multipart 'file'), input_format, output_format.
-    Output: binary response + headers Content-Type, X-Output-Format.
+    Output: binary response + headers Content-Type, X-Output-Format, X-Output-Filename (unique).
     """
     try:
         binary_in = get_binary_input()
@@ -303,9 +304,11 @@ def convert():
             fmt_header = "jpeg"
         ext = "pdf" if fmt_header == "pdf" else fmt_header
 
+        unique_name = f"{uuid.uuid4().hex}.{ext}"
         resp = Response(out_bytes, status=200, mimetype=mime)
         resp.headers["X-Output-Format"] = fmt_header
-        resp.headers["Content-Disposition"] = f"inline; filename=converted.{ext}"
+        resp.headers["X-Output-Filename"] = unique_name
+        resp.headers["Content-Disposition"] = f"inline; filename={unique_name}"
         return resp
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
